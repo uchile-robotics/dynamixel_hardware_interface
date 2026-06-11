@@ -1,9 +1,12 @@
+[comm info]
+bulk_read_support	false
+
 [unit info]
 Data Name	value	unit	Sign Type	Offset
-Present Velocity	0.01193805	rad/s	signed	0.0
-Goal Velocity	0.01193805	rad/s	signed	0.0
-Present Position	0.001533981	rad	unsigned	-3.14159265
-Goal Position	0.001533981	rad	unsigned	-3.14159265
+Present Velocity	0.01162389	rad/s	unsigned	0.0
+Goal Velocity	0.01162389	rad/s	unsigned	0.0
+Present Position	0.005113269	rad	unsigned	-2.617993878
+Goal Position	0.005113269	rad	unsigned	-2.617993878
 Present Input Voltage	0.1	V	unsigned	0.0
 
 [control table]
@@ -15,7 +18,6 @@ Address	Size	Data Name
 5	1	Return Delay Time
 6	2	CW Angle Limit
 8	2	CCW Angle Limit
-10	1	Drive Mode
 11	1	Highest Limit Temperature
 12	1	Lowest Limit Voltage
 13	1	Highest Limit Voltage
@@ -23,13 +25,12 @@ Address	Size	Data Name
 16	1	Status Return Level
 17	1	Alarm LED
 18	1	Alarm Shutdown
-20	2	Multi Turn Offset
-22	1	Resolution Divider
 24	1	Torque Enable
 25	1	LED
-26	1	D Gain
-27	1	I Gain
-28	1	P Gain
+26	1	CW Compliance Margin
+27	1	CCW Compliance Margin
+28	1	CW Compliance Slope
+29	1	CCW Compliance Slope
 30	2	Goal Position
 32	2	Goal Velocity
 34	2	Torque Limit
@@ -40,10 +41,4 @@ Address	Size	Data Name
 43	1	Present Temperature
 44	1	Registered Instruction
 46	1	Moving
-47	1	Lock
 48	2	Punch
-50	2	Realtime Tick
-68	2	Present Current
-70	1	Torque Control Mode Enable
-71	2	Goal Torque
-73	1	Goal Acceleration

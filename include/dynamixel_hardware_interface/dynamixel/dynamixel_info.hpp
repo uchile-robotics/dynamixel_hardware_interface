@@ -48,6 +48,7 @@ typedef  struct
   int32_t value_of_min_radian_position;
   uint16_t model_num;
   uint8_t firmware_version;
+  bool bulk_read_support = true;
 
   std::vector<ControlItem> item;
   std::map<std::string, double> unit_map;
@@ -89,7 +90,7 @@ public:
   bool GetDxlUnitValue(uint8_t comm_id, uint8_t id, std::string data_name, double & unit_value);
   bool GetDxlSignType(uint8_t comm_id, uint8_t id, std::string data_name, bool & is_signed);
   bool GetDxlOffsetValue(uint8_t comm_id, uint8_t id, std::string data_name, double & offset_value);
-
+  bool GetBulkReadSupport(uint8_t comm_id, uint8_t id);
   template<typename T>
   double ConvertValueToUnit(uint8_t comm_id, uint8_t id, std::string data_name, T value);
 

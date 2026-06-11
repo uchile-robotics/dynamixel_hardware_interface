@@ -94,12 +94,16 @@ void DynamixelInfo::ReadDxlModelFile(
   // Check if [type info] section exists
   bool type_info_found = false;
   bool unit_info_found = false;
+  bool comm_info_found = false;
   bool control_table_found = false;
 
   while (!open_file.eof() ) {
     getline(open_file, line);
     if (strcmp(line.c_str(), "[type info]") == 0) {
       type_info_found = true;
+      break;
+    } else if (strcmp(line.c_str(), "[comm info]") == 0){
+      comm_info_found = true;
       break;
     } else if (strcmp(line.c_str(), "[unit info]") == 0) {
       unit_info_found = true;
@@ -108,6 +112,26 @@ void DynamixelInfo::ReadDxlModelFile(
       control_table_found = true;
       break;
     }
+  }
+  if (comm_info_found) {
+      while (!open_file.eof()) {
+          getline(open_file, line);
+          if (strcmp(line.c_str(), "[type info]") == 0) {
+              type_info_found = true; break;
+          } else if (strcmp(line.c_str(), "[unit info]") == 0) {
+              unit_info_found = true; break;
+          } else if (strcmp(line.c_str(), "[control table]") == 0) {
+              control_table_found = true; break;
+          }
+
+          std::vector<std::string> strs;
+          boost::split(strs, line, boost::is_any_of("\t"));
+          if (strs.size() < 2) { continue; }
+
+          if (strs.at(0) == "bulk_read_support") {
+              temp_dxl_info.bulk_read_support = (strs.at(1) == "true");
+          }
+      }
   }
   if (type_info_found) {
     // Parse type info section
@@ -473,5 +497,15 @@ std::string DynamixelInfo::GetModelName(uint16_t model_number) const
   }
   return "unknown";
 }
-
+bool DynamixelInfo::GetBulkReadSupport(uint8_t comm_id, uint8_t id)
+{
+    auto cit = dxl_info_by_comm_.find(comm_id);
+    if (cit != dxl_info_by_comm_.end()) {
+        auto iit = cit->second.find(id);
+        if (iit != cit->second.end()) {
+            return iit->second.bulk_read_support;
+        }
+    }
+    return true;
+}
 }  // namespace dynamixel_hardware_interface

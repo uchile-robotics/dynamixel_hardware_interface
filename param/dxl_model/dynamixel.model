@@ -1,4 +1,6 @@
 Number	Name
+28	rx.model
+64	rx.model
 30	mx_28.model
 220	omy_hat.model
 230	omy_end.model
@@ -31,7 +33,7 @@ Number	Name
 6024	hx5_d20_r_synctable_5_device_4.model
 6025	hx5_d20_r_synctable_5_device_5.model
 311	mx_64.model
-321	mx_106.model
+320	mx_106.model
 350	xl320.model
 536	sensorxel_joy.model
 537	ffw_g40_imu.model

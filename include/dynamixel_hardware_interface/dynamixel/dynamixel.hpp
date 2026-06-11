@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <set>
 #include <cstdarg>
 #include <memory>
 #include <functional>
@@ -186,6 +187,15 @@ typedef struct
   std::vector<std::shared_ptr<double>> item_data_ptr_vec;  ///< Pointers to the data.
 } RWItemList;
 
+typedef struct
+{
+  uint8_t comm_id;
+  std::vector<uint16_t> item_addr;
+  std::vector<uint8_t>  item_size;
+  std::vector<std::string> item_name;
+  std::vector<std::shared_ptr<double>> item_data_ptr_vec;
+} IndividualReadInfo;
+
 class Dynamixel
 {
 private:
@@ -201,6 +211,10 @@ private:
   std::vector<RWItemBufInfo> read_item_buf_;
   std::map<std::pair<uint8_t /*comm_id*/, uint8_t /*id*/>, bool> torque_state_;
 
+  std::vector<IndividualReadInfo> individual_read_list_;
+  std::set<uint8_t>               individual_read_ids_;
+  std::vector<IndividualReadInfo> individual_write_list_;
+  std::set<uint8_t>               individual_write_ids_;
   // read item (sync or bulk) variable
   bool read_type_;
   std::vector<RWItemList> read_data_list_;
@@ -313,6 +327,10 @@ private:
   DxlError SetSyncReadHandler(std::vector<uint8_t> id_arr);
   DxlError GetDxlValueFromSyncRead(double period_ms);
   DxlError SetFastSyncReadHandler(std::vector<uint8_t> id_arr);
+
+  // IndividualRead/Write
+  DxlError ReadIndividualDxlData();
+  DxlError WriteIndividualDxlData();
 
   // BulkRead
   DxlError SetBulkReadItemAndHandler();
