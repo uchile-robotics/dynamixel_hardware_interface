@@ -200,10 +200,10 @@ void Dynamixel::OverrideUnitInfo(
   dxl_info_.dxl_info_by_comm_[comm_id][id].offset_map[data_name] = offset_value;
 }
 
-DxlError Dynamixel::SetupPort(const std::string & port_name, const std::string & baudrate)
+DxlError Dynamixel::SetupPort(const std::string & port_name, const std::string & baudrate, const float & protocol_version)
 {
   port_handler_ = dynamixel::PortHandler::getPortHandler(port_name.c_str());
-  packet_handler_ = dynamixel::PacketHandler::getPacketHandler(1.0);
+  packet_handler_ = dynamixel::PacketHandler::getPacketHandler(protocol_version);
 
   bool port_opened = false;
   for (int attempt = 0; attempt < MAX_COMM_RETRIES; ++attempt) {
@@ -2268,33 +2268,54 @@ DxlError Dynamixel::SetBulkWriteItemAndHandler()
   }
   ResetIndirectWrite(indirect_id_arr);
 
+
   for (auto it_write_data : indirect_write_data_list) {
-    for (size_t item_index = 0; item_index < it_write_data.item_name.size();
-      item_index++)
-    {
-      if (AddIndirectWrite(
-          it_write_data.comm_id,
-          it_write_data.item_name.at(item_index),
-          it_write_data.item_addr.at(item_index),
-          it_write_data.item_size.at(item_index)) != DxlError::OK)
-      {
-        fprintf(stderr, "Cannot set the BulkWrite handler.\n");
-        return DxlError::BULK_WRITE_FAIL;
+      bool indirect_ok = true;
+
+      for (size_t item_index = 0; item_index < it_write_data.item_name.size(); item_index++) {
+          if (AddIndirectWrite(
+              it_write_data.comm_id,
+              it_write_data.item_name.at(item_index),
+              it_write_data.item_addr.at(item_index),
+              it_write_data.item_size.at(item_index)) != DxlError::OK)
+          {
+              indirect_ok = false;
+              break;
+          }
+          fprintf(stderr, "[ID:%03d] Add Indirect Address Write Item : [%s]\n",
+              it_write_data.comm_id,
+              it_write_data.item_name.at(item_index).c_str());
       }
 
-      fprintf(
-        stderr, "[ID:%03d] Add Indirect Address Write Item : [%s]\n",
-        it_write_data.comm_id,
-        it_write_data.item_name.at(item_index).c_str());
-    }
+      if (!indirect_ok) {
+          IndividualReadInfo ind;
+          ind.comm_id           = it_write_data.comm_id;
+          ind.item_addr         = it_write_data.item_addr;
+          ind.item_size         = it_write_data.item_size;
+          ind.item_name         = it_write_data.item_name;
+          ind.item_data_ptr_vec = it_write_data.item_data_ptr_vec;
+          individual_write_list_.push_back(ind);
+          individual_write_ids_.insert(it_write_data.comm_id);
+          ResetIndirectWrite({it_write_data.comm_id});
+          fprintf(stderr,
+              "[ID:%03d] IndirectWrite setup failed → fallback to individual writes\n",
+              it_write_data.comm_id);
+      }
+  }
+  std::vector<uint8_t> final_indirect_id_arr;
+  for (auto id : indirect_id_arr) {
+      if (individual_write_ids_.count(id) == 0) {
+          final_indirect_id_arr.push_back(id);
+      }
   }
 
-  if (SetBulkWriteHandler(indirect_id_arr) < 0) {
-    fprintf(stderr, "Cannot set the BulkWrite handler.\n");
-    return DxlError::BULK_WRITE_FAIL;
+  if (!final_indirect_id_arr.empty()) {
+      if (SetBulkWriteHandler(final_indirect_id_arr) < 0) {
+          fprintf(stderr, "Cannot set the BulkWrite handler.\n");
+          return DxlError::BULK_WRITE_FAIL;
+      }
+      fprintf(stderr, "Success to set BulkWrite handler using indirect address\n");
   }
-
-  fprintf(stderr, "Success to set BulkWrite handler using indirect address\n");
   return DxlError::OK;
 }
 

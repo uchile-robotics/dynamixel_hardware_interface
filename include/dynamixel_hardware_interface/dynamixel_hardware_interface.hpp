@@ -229,6 +229,7 @@ private:
   ///// dxl variable
   std::string port_name_;
   std::string baud_rate_;
+  std::string protocol_version_;
   std::vector<std::pair<uint8_t, uint8_t>> dxl_comm_id_id_;
   std::vector<std::pair<uint8_t, uint8_t>> virtual_dxl_comm_id_id_;
 
