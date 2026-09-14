@@ -48,7 +48,7 @@ namespace dynamixel_hardware_interface
 #define BULK 1  ///< Bulk communication.
 
 /// @brief Maximum number of retries for communication operations
-#define MAX_COMM_RETRIES 5  ///< Maximum number of retries for communication operations
+#define MAX_COMM_RETRIES 6  ///< Maximum number of retries for communication operations
 
 /// @brief Error codes for Dynamixel operations.
 enum DxlError
@@ -419,6 +419,9 @@ private:
 
   // Helper function for writing values to buffer
   void WriteValueToBuffer(uint8_t * buffer, uint8_t offset, uint32_t value, uint8_t size);
+
+  // Helper function for reading values back out of a buffer
+  uint32_t ReadValueFromBuffer(const uint8_t * buffer, uint8_t offset, uint8_t size);
 };
 
 }  // namespace dynamixel_hardware_interface

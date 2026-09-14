@@ -16,6 +16,7 @@
 
 #include "dynamixel_hardware_interface/dynamixel/dynamixel.hpp"
 
+#include <algorithm>
 #include <queue>
 #include <vector>
 #include <string>
@@ -2614,54 +2615,72 @@ void Dynamixel::WriteValueToBuffer(uint8_t * buffer, uint8_t offset, uint32_t va
     buffer[offset + 3] = DXL_HIBYTE(DXL_HIWORD(value));
   }
 }
+
+uint32_t Dynamixel::ReadValueFromBuffer(const uint8_t * buffer, uint8_t offset, uint8_t size)
+{
+  if (size == 1) {
+    return buffer[offset];
+  } else if (size == 2) {
+    return DXL_MAKEWORD(buffer[offset + 0], buffer[offset + 1]);
+  } else if (size == 4) {
+    return DXL_MAKEDWORD(
+      DXL_MAKEWORD(buffer[offset + 0], buffer[offset + 1]),
+      DXL_MAKEWORD(buffer[offset + 2], buffer[offset + 3]));
+  }
+  return 0;
+}
+
 DxlError Dynamixel::ReadIndividualDxlData()
 {
+  constexpr uint16_t kMaxSpanSize = 128;
+
   for (auto & ind : individual_read_list_) {
+    if (ind.item_addr.empty()) {continue;}
     uint8_t id = ind.comm_id;
+
+    uint16_t min_addr = ind.item_addr[0];
+    uint16_t max_end_addr = static_cast<uint16_t>(ind.item_addr[0] + ind.item_size[0]);
+    for (size_t i = 1; i < ind.item_addr.size(); i++) {
+      min_addr = std::min(min_addr, ind.item_addr[i]);
+      max_end_addr = std::max(
+        max_end_addr, static_cast<uint16_t>(ind.item_addr[i] + ind.item_size[i]));
+    }
+    uint16_t span_size = static_cast<uint16_t>(max_end_addr - min_addr);
+    if (span_size > kMaxSpanSize) {
+      fprintf(
+        stderr, "[IndividualRead][ID:%03d] Address span (%d) exceeds max supported (%d)\n",
+        id, span_size, kMaxSpanSize);
+      return DxlError::ITEM_READ_FAIL;
+    }
+
+    uint8_t buffer[kMaxSpanSize];
+    bool success = false;
+    for (int attempt = 0; attempt < MAX_COMM_RETRIES; attempt++) {
+      uint8_t dxl_error = 0;
+      int comm_result = packet_handler_->readTxRx(
+        port_handler_, id, min_addr, span_size, buffer, &dxl_error);
+
+      if (comm_result == COMM_SUCCESS) {
+        success = true;
+        break;
+      }
+      fprintf(
+        stderr,
+        "[IndividualRead][ID:%03d] COMM_ERROR: %s (retry %d/%d)\n",
+        id, packet_handler_->getTxRxResult(comm_result),
+        attempt + 1, MAX_COMM_RETRIES);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+
+    if (!success) {
+      return DxlError::ITEM_READ_FAIL;
+    }
+
     for (size_t i = 0; i < ind.item_addr.size(); i++) {
-      uint32_t data     = 0;
-      uint8_t  dxl_error = 0;
-      int      comm_result = COMM_TX_FAIL;
-      uint16_t addr = ind.item_addr[i];
-      uint8_t  size = ind.item_size[i];
+      uint8_t size = ind.item_size[i];
+      uint8_t offset = static_cast<uint8_t>(ind.item_addr[i] - min_addr);
+      uint32_t data = ReadValueFromBuffer(buffer, offset, size);
 
-      bool success = false;
-      for (int attempt = 0; attempt < MAX_COMM_RETRIES; attempt++) {
-        dxl_error   = 0;
-        comm_result = COMM_TX_FAIL;
-
-        if (size == 1) {
-          uint8_t d = 0;
-          comm_result = packet_handler_->read1ByteTxRx(
-            port_handler_, id, addr, &d, &dxl_error);
-          data = d;
-        } else if (size == 2) {
-          uint16_t d = 0;
-          comm_result = packet_handler_->read2ByteTxRx(
-            port_handler_, id, addr, &d, &dxl_error);
-          data = d;
-        } else if (size == 4) {
-          uint32_t d = 0;
-          comm_result = packet_handler_->read4ByteTxRx(
-            port_handler_, id, addr, &d, &dxl_error);
-          data = d;
-        }
-
-        if (comm_result == COMM_SUCCESS) {
-          success = true;
-          break;
-        }
-        fprintf(
-          stderr,
-          "[IndividualRead][ID:%03d] COMM_ERROR: %s (retry %d/%d)\n",
-          id, packet_handler_->getTxRxResult(comm_result),
-          attempt + 1, MAX_COMM_RETRIES);
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-
-      if (!success) {
-        return DxlError::ITEM_READ_FAIL;
-      }
       bool   is_signed = false;
       double unit_value = 0.0;
       if (dxl_info_.GetDxlUnitValue(id, id, ind.item_name[i], unit_value) &&
@@ -2681,40 +2700,109 @@ DxlError Dynamixel::ReadIndividualDxlData()
   }
   return DxlError::OK;
 }
+
 DxlError Dynamixel::WriteIndividualDxlData()
 {
+  constexpr uint16_t kMaxSpanSize = 128;
+
   for (auto & ind : individual_write_list_) {
     uint8_t id = ind.comm_id;
-    for (size_t i = 0; i < ind.item_addr.size(); i++) {
-      double   data = *ind.item_data_ptr_vec[i];
-      uint16_t addr = ind.item_addr[i];
-      uint8_t  size = ind.item_size[i];
+    size_t item_count = ind.item_addr.size();
+    if (item_count == 0) {continue;}
 
-      uint32_t raw_value = 0;
-      bool     is_signed = false;
-      double   unit_value = 0.0;
+    // Compute the raw value to write for every item up front.
+    std::vector<uint32_t> raw_values(item_count);
+    for (size_t i = 0; i < item_count; i++) {
+      double data = *ind.item_data_ptr_vec[i];
+      uint8_t size = ind.item_size[i];
 
+      bool   is_signed = false;
+      double unit_value = 0.0;
       if (dxl_info_.GetDxlUnitValue(id, id, ind.item_name[i], unit_value) &&
           dxl_info_.GetDxlSignType (id, id, ind.item_name[i], is_signed))
       {
-        raw_value = ConvertUnitValueToRawValue(
+        raw_values[i] = ConvertUnitValueToRawValue(
           id, id, ind.item_name[i], data, size, is_signed);
       } else {
         if (ind.item_name[i] == "Goal Position") {
-          raw_value = static_cast<uint32_t>(
+          raw_values[i] = static_cast<uint32_t>(
             dxl_info_.ConvertRadianToValue(id, id, data));
         } else {
-          raw_value = static_cast<uint32_t>(data);
+          raw_values[i] = static_cast<uint32_t>(data);
         }
       }
+    }
 
-      DxlError result = WriteItem(id, id, addr, size, raw_value);
-      if (result != DxlError::OK) {
-        fprintf(
-          stderr, "[IndividualWrite][ID:%03d] WriteItem failed for %s\n",
-          id, ind.item_name[i].c_str());
-        return result;
+    // Sort items by address so contiguous items can be merged into one transaction.
+    std::vector<size_t> order(item_count);
+    for (size_t i = 0; i < item_count; i++) {order[i] = i;}
+    std::sort(
+      order.begin(), order.end(),
+      [&ind](size_t a, size_t b) {return ind.item_addr[a] < ind.item_addr[b];});
+
+    size_t group_start = 0;
+    while (group_start < item_count) {
+      size_t group_end = group_start + 1;
+      uint16_t group_min_addr = ind.item_addr[order[group_start]];
+      uint16_t group_max_end_addr = static_cast<uint16_t>(
+        group_min_addr + ind.item_size[order[group_start]]);
+
+      while (group_end < item_count) {
+        uint16_t next_addr = ind.item_addr[order[group_end]];
+        if (next_addr != group_max_end_addr) {break;}
+        group_max_end_addr = static_cast<uint16_t>(
+          next_addr + ind.item_size[order[group_end]]);
+        group_end++;
       }
+
+      uint16_t group_size = static_cast<uint16_t>(group_max_end_addr - group_min_addr);
+      if (group_size > kMaxSpanSize) {
+        fprintf(
+          stderr, "[IndividualWrite][ID:%03d] Address span (%d) exceeds max supported (%d)\n",
+          id, group_size, kMaxSpanSize);
+        return DxlError::ITEM_WRITE_FAIL;
+      }
+
+      uint8_t buffer[kMaxSpanSize];
+      for (size_t g = group_start; g < group_end; g++) {
+        size_t idx = order[g];
+        uint8_t offset = static_cast<uint8_t>(ind.item_addr[idx] - group_min_addr);
+        WriteValueToBuffer(buffer, offset, raw_values[idx], ind.item_size[idx]);
+      }
+
+      bool success = false;
+      bool hard_fail = false;
+      for (int attempt = 0; attempt < MAX_COMM_RETRIES; attempt++) {
+        uint8_t dxl_error = 0;
+        int comm_result = packet_handler_->writeTxRx(
+          port_handler_, id, group_min_addr, group_size, buffer, &dxl_error);
+
+        if (comm_result != COMM_SUCCESS) {
+          fprintf(
+            stderr,
+            "[IndividualWrite][ID:%03d] COMM_ERROR: %s (retry %d/%d)\n",
+            id, packet_handler_->getTxRxResult(comm_result),
+            attempt + 1, MAX_COMM_RETRIES);
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+          continue;
+        }
+        if (dxl_error != 0) {
+          fprintf(
+            stderr,
+            "[IndividualWrite][ID:%03d] RX_PACKET_ERROR: %s\n",
+            id, packet_handler_->getRxPacketError(dxl_error));
+          hard_fail = true;
+          break;
+        }
+        success = true;
+        break;
+      }
+
+      if (hard_fail || !success) {
+        return DxlError::ITEM_WRITE_FAIL;
+      }
+
+      group_start = group_end;
     }
   }
   return DxlError::OK;
